@@ -95,9 +95,9 @@ runs:
       shell: bash
       run: |
         if [ "${{ inputs.version }}" = "latest" ]; then
-          pip install --quiet perf-lint
+          pip install --quiet perf-lint-tool
         else
-          pip install --quiet "perf-lint==${{ inputs.version }}"
+          pip install --quiet "perf-lint-tool==${{ inputs.version }}"
         fi
 
     - name: Build perf-lint arguments

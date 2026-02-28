@@ -2,6 +2,12 @@
 
 All notable changes to the perf-lint GitHub Action are documented here.
 
+## [1.0.1] — 2026-02-28
+
+### Fixed
+- Install from `perf-lint-tool` on PyPI (PyPI normalises `perf-lint` and
+  `perflint` to the same namespace; distribution renamed accordingly)
+
 ## [1.0.0] — 2026-02-28
 
 ### Added
