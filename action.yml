@@ -1,9 +1,5 @@
 name: perf-lint
-description: >
-  Static analyser for performance test scripts (JMeter, k6, Gatling).
-  Detects missing think times, hardcoded values, absent assertions,
-  unrealistic ramp patterns, and more. Optionally uploads SARIF results
-  to GitHub Code Scanning and sends full results to your perf-lint dashboard.
+description: Static analysis for JMeter, k6, and Gatling performance test scripts. Catches quality issues before they reach production.
 
 author: martkos-it
 
