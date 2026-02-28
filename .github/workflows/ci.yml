@@ -1,0 +1,92 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  # ── Test the action against perf-lint's own sample scripts ──────────────────
+  test-action:
+    name: Test action (${{ matrix.framework }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - framework: jmeter
+            path: tests/fixtures/jmeter/good.jmx
+            expect_violations: false
+          - framework: k6
+            path: tests/fixtures/k6/good_test.js
+            expect_violations: false
+          - framework: gatling
+            path: tests/fixtures/gatling/GoodSimulation.scala
+            expect_violations: false
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Checkout perf-lint (for sample fixtures)
+        uses: actions/checkout@v4
+        with:
+          repository: markslilley/perf-lint
+          path: perf-lint-src
+
+      - name: Run perf-lint action on ${{ matrix.framework }} fixture
+        id: lint
+        uses: ./
+        with:
+          paths: perf-lint-src/${{ matrix.path }}
+          fail_on_violations: ${{ matrix.expect_violations }}
+          severity: warning
+
+      - name: Print outputs
+        run: |
+          echo "violations=${{ steps.lint.outputs.violations }}"
+          echo "score=${{ steps.lint.outputs.score }}"
+          echo "grade=${{ steps.lint.outputs.grade }}"
+
+  # ── Test SARIF upload path ───────────────────────────────────────────────────
+  test-sarif:
+    name: Test SARIF output
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Checkout perf-lint
+        uses: actions/checkout@v4
+        with:
+          repository: markslilley/perf-lint
+          path: perf-lint-src
+
+      - name: Run perf-lint with SARIF upload
+        uses: ./
+        with:
+          paths: perf-lint-src/samples/
+          upload_sarif: 'true'
+          fail_on_violations: 'false'
+
+  # ── Validate action.yml schema ───────────────────────────────────────────────
+  validate-action-yml:
+    name: Validate action.yml
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check action.yml is valid YAML
+        run: python3 -c "import yaml; yaml.safe_load(open('action.yml'))" && echo "OK"

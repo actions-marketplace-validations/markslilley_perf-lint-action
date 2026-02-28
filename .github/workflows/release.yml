@@ -1,0 +1,59 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Extract version from tag
+        id: version
+        run: echo "version=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.version }}
+          name: perf-lint action ${{ steps.version.outputs.version }}
+          body: |
+            ## perf-lint action ${{ steps.version.outputs.version }}
+
+            See [CHANGELOG.md](CHANGELOG.md) for details.
+
+            ### Usage
+
+            ```yaml
+            - uses: markslilley/perf-lint-action@${{ steps.version.outputs.version }}
+              with:
+                paths: tests/
+                api_key: ${{ secrets.PERF_LINT_API_KEY }}
+            ```
+          draft: false
+          prerelease: ${{ contains(steps.version.outputs.version, '-') }}
+
+  # Keep the major version tag (v1) pointing to the latest patch release.
+  # This lets users pin to @v1 without needing to update on every patch.
+  update-major-tag:
+    name: Update major version tag
+    runs-on: ubuntu-latest
+    needs: release
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Move major tag
+        run: |
+          VERSION="${GITHUB_REF#refs/tags/}"
+          MAJOR=$(echo "$VERSION" | cut -d. -f1)
+          git tag -f "$MAJOR"
+          git push origin "$MAJOR" --force

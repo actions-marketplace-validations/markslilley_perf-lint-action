@@ -1,0 +1,173 @@
+name: perf-lint
+description: >
+  Static analyser for performance test scripts (JMeter, k6, Gatling).
+  Detects missing think times, hardcoded values, absent assertions,
+  unrealistic ramp patterns, and more. Optionally uploads SARIF results
+  to GitHub Code Scanning and sends full results to your perf-lint dashboard.
+
+author: martkos-it
+
+branding:
+  icon: activity
+  color: orange
+
+inputs:
+  paths:
+    description: >
+      Space-separated list of files or directories to analyse.
+      Supports glob patterns.
+    required: false
+    default: '.'
+
+  version:
+    description: >
+      perf-lint version to install (e.g. "1.0.0"). Defaults to the
+      latest release.
+    required: false
+    default: 'latest'
+
+  severity:
+    description: >
+      Minimum severity level that causes a non-zero exit code.
+      Options: error | warning | info
+    required: false
+    default: 'warning'
+
+  format:
+    description: >
+      Output format for the primary report.
+      Options: text | json | sarif
+    required: false
+    default: 'text'
+
+  config:
+    description: Path to a .perf-lint.yml config file.
+    required: false
+    default: ''
+
+  ignore_rule:
+    description: >
+      Comma-separated list of rule IDs to ignore
+      (e.g. "JMX001,K6003").
+    required: false
+    default: ''
+
+  upload_sarif:
+    description: >
+      Upload a SARIF report to GitHub Code Scanning.
+      Requires the security-events: write permission.
+      Set to "true" to enable.
+    required: false
+    default: 'false'
+
+  fail_on_violations:
+    description: >
+      Fail the workflow step when free-tier violations are found at or
+      above the severity threshold. Set to "false" to report only.
+    required: false
+    default: 'true'
+
+  api_key:
+    description: >
+      perf-lint API key. When set, full results (all tiers) are sent
+      silently to your dashboard at https://perflint.martkos-it.co.uk.
+      Store this as a repository secret: secrets.PERF_LINT_API_KEY.
+    required: false
+    default: ''
+
+outputs:
+  violations:
+    description: Total number of free-tier violations found across all files.
+    value: ${{ steps.run.outputs.violations }}
+
+  score:
+    description: Overall quality score (0-100).
+    value: ${{ steps.run.outputs.score }}
+
+  grade:
+    description: Overall quality grade (A-F).
+    value: ${{ steps.run.outputs.grade }}
+
+  sarif_file:
+    description: Path to the generated SARIF file (when upload_sarif is true).
+    value: ${{ steps.run.outputs.sarif_file }}
+
+runs:
+  using: composite
+  steps:
+    - name: Install perf-lint
+      shell: bash
+      run: |
+        if [ "${{ inputs.version }}" = "latest" ]; then
+          pip install --quiet perf-lint
+        else
+          pip install --quiet "perf-lint==${{ inputs.version }}"
+        fi
+
+    - name: Build perf-lint arguments
+      id: args
+      shell: bash
+      run: |
+        ARGS="${{ inputs.paths }}"
+
+        if [ -n "${{ inputs.config }}" ]; then
+          ARGS="$ARGS --config ${{ inputs.config }}"
+        fi
+
+        if [ -n "${{ inputs.severity }}" ]; then
+          ARGS="$ARGS --severity ${{ inputs.severity }}"
+        fi
+
+        if [ -n "${{ inputs.ignore_rule }}" ]; then
+          for rule in $(echo "${{ inputs.ignore_rule }}" | tr ',' ' '); do
+            ARGS="$ARGS --ignore-rule $rule"
+          done
+        fi
+
+        echo "args=$ARGS" >> "$GITHUB_OUTPUT"
+
+    - name: Run perf-lint (text)
+      id: run
+      shell: bash
+      env:
+        PERF_LINT_API_KEY: ${{ inputs.api_key }}
+      run: |
+        set +e
+        OUTPUT=$(perf-lint check ${{ steps.args.outputs.args }} --no-color 2>&1)
+        EXIT_CODE=$?
+        set -e
+
+        echo "$OUTPUT"
+
+        # Extract metrics from JSON for outputs
+        JSON=$(perf-lint check ${{ steps.args.outputs.args }} --format json 2>/dev/null || echo '{}')
+        VIOLATIONS=$(echo "$JSON" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('summary',{}).get('total_violations',0))" 2>/dev/null || echo "0")
+        SCORE=$(echo "$JSON"     | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('overall_score',0))" 2>/dev/null || echo "0")
+        GRADE=$(echo "$JSON"     | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('overall_grade','F'))" 2>/dev/null || echo "F")
+
+        echo "violations=$VIOLATIONS" >> "$GITHUB_OUTPUT"
+        echo "score=$SCORE"           >> "$GITHUB_OUTPUT"
+        echo "grade=$GRADE"           >> "$GITHUB_OUTPUT"
+
+        if [ "${{ inputs.fail_on_violations }}" = "true" ]; then
+          exit $EXIT_CODE
+        fi
+
+    - name: Generate SARIF report
+      id: sarif
+      if: inputs.upload_sarif == 'true'
+      shell: bash
+      env:
+        PERF_LINT_API_KEY: ${{ inputs.api_key }}
+      run: |
+        SARIF_FILE="${{ runner.temp }}/perf-lint.sarif"
+        perf-lint check ${{ steps.args.outputs.args }} --format sarif \
+          --output "$SARIF_FILE" || true
+        echo "sarif_file=$SARIF_FILE" >> "$GITHUB_OUTPUT"
+
+    - name: Upload SARIF to GitHub Code Scanning
+      if: inputs.upload_sarif == 'true' && steps.sarif.outputs.sarif_file != ''
+      uses: github/codeql-action/upload-sarif@v3
+      with:
+        sarif_file: ${{ steps.sarif.outputs.sarif_file }}
+        category: perf-lint
