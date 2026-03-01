@@ -136,7 +136,10 @@ runs:
         echo "$OUTPUT"
 
         # Extract metrics from JSON for outputs
-        JSON=$(perf-lint check ${{ steps.args.outputs.args }} --format json 2>/dev/null || echo '{}')
+        # Use set +e so exit code 1 (violations found) doesn't abort the subshell
+        set +e
+        JSON=$(perf-lint check ${{ steps.args.outputs.args }} --format json 2>/dev/null)
+        set -e
         VIOLATIONS=$(echo "$JSON" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('summary',{}).get('total_violations',0))" 2>/dev/null || echo "0")
         SCORE=$(echo "$JSON"     | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('overall_score',0))" 2>/dev/null || echo "0")
         GRADE=$(echo "$JSON"     | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('overall_grade','F'))" 2>/dev/null || echo "F")
